@@ -24,7 +24,7 @@ Add the `-webhook-url` flag to your startup command, pointing to the HTTP addres
 
 ```bash
 # Example: svc-router running on the same host, port 80
-./mc-router -webhook-url "http://localhost:80/event" ...
+./mc-router -webhook-url "http://localhost:8080/event" ...
 ```
 
 ### 3. Running svc-router
@@ -35,7 +35,7 @@ Add the `-webhook-url` flag to your startup command, pointing to the HTTP addres
 ### 3. Running svc-router
 **Default Ports:**
 * **UDP Listening:** `0.0.0.0:24454` (Game Traffic)
-* **HTTP Listening:** `0.0.0.0:80` (Webhooks)
+* **HTTP Listening:** `0.0.0.0:8080` (Webhooks)
 
 **Run via Docker (Example):**
 ```bash
@@ -43,7 +43,7 @@ docker run -d \
   -p 24454:24454/udp \
   -p 8080:8080 \
   --name svc-router \
-  svc-router:latest
+  jschuler99/svc-router:latest
 ```
 
 ## Special Thanks
