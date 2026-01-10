@@ -46,6 +46,11 @@ docker run -d \
   jschuler99/svc-router:latest
 ```
 
+## Contributing
+This project has undergone limited testing in live environments. Feedback and contributions are highly encouraged!
+
+If you encounter any issues or have suggestions for improvements, please feel free to open an issue or submit a Pull Request.
+
 ## Special Thanks
 
 * **[itzg](https://github.com/itzg)** - For creating [mc-router](https://github.com/itzg/mc-router) and providing the inspiration and webhook architecture that made this project possible.
