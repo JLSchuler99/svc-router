@@ -24,11 +24,13 @@ const (
 type WebhookPayload struct {
 	Event  string `json:"event"`
 	Status string `json:"status"`
+	Server string `json:"server"`
 	Player struct {
 		Name string `json:"name"`
 		UUID string `json:"uuid"`
 	} `json:"player"`
 	Backend string `json:"backend"`
+	Error   string `json:"error"`
 }
 
 // Session tracks a player's connection
@@ -73,22 +75,75 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	playerUUID, err := uuid.Parse(payload.Player.UUID)
-	if err != nil {
+	var playerUUID *uuid.UUID
+	if res, err := uuid.Parse(payload.Player.UUID); err == nil {
+		playerUUID = &res
+	} else if payload.Player.UUID != "" { // ignore unspecified UUID here, handled below
 		log.Printf("[Webhook] Invalid UUID: %s", payload.Player.UUID)
+		http.Error(w, "Invalid UUID", http.StatusBadRequest)
 		return
 	}
 
 	routesMu.Lock()
 	defer routesMu.Unlock()
 
-	if payload.Event == "connect" {
+	switch payload.Event {
+	case "connect":
+		switch payload.Status {
+		case "success":
+			// continue
+		case "missing-backend":
+			// mc-router did not find a backend, so we have nothing more to do
+			return
+		case "failed-backend-connection":
+			// mc-router failed to connect to backend server
+			// we can just assume that SVC also won't work then, so there's nothing more to do
+			return
+		default:
+			log.Printf("[Webhook] connect: Unknown status received: %s", payload.Status)
+			http.Error(w, "Unknown status", http.StatusBadRequest)
+			return
+		}
+
+		if payload.Player.UUID == "00000000-0000-0000-0000-000000000000" {
+			log.Printf("[Webhook] Can't register connection to backend %s (%s) for UUID 0", payload.Backend, payload.Server)
+			http.Error(w, "Invalid UUID (0)", http.StatusBadRequest)
+			return
+		}
+		if playerUUID == nil {
+			// just a server connection test, nothing for us to do
+			return
+		}
+
+		if _, ok := routes[*playerUUID]; ok {
+			log.Printf("[Webhook] Received connect for already mapped UUID: %s (replacing)", *playerUUID)
+		}
 		udpTarget := transformBackendAddress(payload.Backend)
-		routes[playerUUID] = udpTarget
-		log.Printf("[Webhook] Registered %s -> %s (Source: %s)", playerUUID, udpTarget, payload.Backend)
-	} else if payload.Event == "disconnect" {
-		delete(routes, playerUUID)
-		log.Printf("[Webhook] Removed %s", playerUUID)
+		routes[*playerUUID] = udpTarget
+		log.Printf("[Webhook] Registered %s -> %s (Source: %s)", *playerUUID, udpTarget, payload.Backend)
+
+	case "disconnect":
+		if payload.Status != "success" {
+			log.Printf("[Webhook] disconnect: Unknown status received: %s", payload.Status)
+			http.Error(w, "Unknown status", http.StatusBadRequest)
+			return
+		}
+
+		if playerUUID == nil {
+			log.Printf("[Webhook] Received disconnect for empty UUID")
+			return
+		}
+
+		if _, ok := routes[*playerUUID]; !ok {
+			log.Printf("[Webhook] Received disconnect for unmapped UUID: %s", *playerUUID)
+			return
+		}
+		delete(routes, *playerUUID)
+		log.Printf("[Webhook] Removed %s", *playerUUID)
+
+	default:
+		log.Printf("[Webhook] Unknown event type received: %s (ignoring)", payload.Event)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
