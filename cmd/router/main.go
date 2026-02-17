@@ -16,7 +16,7 @@ import (
 const (
 	UDPListenAddr    = "0.0.0.0:24454"
 	HTTPListenAddr   = "0.0.0.0:8080"
-	PacketTypeVoice  = 0xFF
+	SVC_MagicByte    = 0xFF
 	DefaultVoicePort = "24454"
 )
 
@@ -105,17 +105,18 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if payload.Player.UUID == "00000000-0000-0000-0000-000000000000" {
-			log.Printf("[Webhook] Can't register connection to backend %s (%s) for UUID 0", payload.Backend, payload.Server)
-			http.Error(w, "Invalid UUID (0)", http.StatusBadRequest)
-			return
-		}
 		if playerUUID == nil {
 			// just a server connection test, nothing for us to do
 			return
 		}
 
-		if _, ok := routes[*playerUUID]; ok {
+		if payload.Player.UUID == "00000000-0000-0000-0000-000000000000" {
+			log.Printf("[Webhook] Backend %s uses old protocol without UUIDs; no handling", payload.Backend)
+			http.Error(w, "UUID is required", http.StatusBadRequest)
+			return
+		}
+		
+		if _, has := routes[*playerUUID]; has {
 			log.Printf("[Webhook] Received connect for already mapped UUID: %s (replacing)", *playerUUID)
 		}
 		udpTarget := transformBackendAddress(payload.Backend)
@@ -130,7 +131,14 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if playerUUID == nil {
-			log.Printf("[Webhook] Received disconnect for empty UUID")
+			// The end of a server connection test?
+			return
+		}
+
+		if payload.Player.UUID == "00000000-0000-0000-0000-000000000000" {
+			// The disconnect for an old-backend connection; the error was already logged, ignore
+			// log.Printf("[Webhook] Backend %s uses old protocol without UUIDs; no handling", payload.Backend)
+			http.Error(w, "UUID is required", http.StatusBadRequest)
 			return
 		}
 
@@ -202,6 +210,12 @@ func handlePacket(mainConn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte,
 		return
 	}
 
+	if packet[0] != SVC_MagicByte {
+		// TODO: make this log message print only once per clientKey
+		log.Printf("[Router] Received packet without magic byte from %s. The client and/or server may be using an old version of SVC, which is not supported.", clientKey)
+		return
+	}
+
 	// SCENARIO B: New Session
 	// Check packet validity
 	if len(packet) < 17 {
@@ -209,12 +223,7 @@ func handlePacket(mainConn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte,
 		return
 	}
 
-	// Simple Voice Chat sends data and ping packets
-	// we can only setup a session on voice data packets, afterwards all packets are forwarded
-	if packet[0] != PacketTypeVoice {
-		log.Printf("[Debug] Ignored non-voice packet (type %x) from %s", packet[0], clientKey)
-		return
-	}
+	// TODO: we can only set up a session on voice data packets, afterwards all packets are forwarded
 
 	// Extract UUID
 	uuidBytes := packet[1:17]
