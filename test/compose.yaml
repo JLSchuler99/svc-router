@@ -1,0 +1,69 @@
+name: mc-router-testbed
+
+services:
+  # routers
+  mc-router:
+    image: itzg/mc-router:latest
+    environment:
+      IN_DOCKER: true
+      WEBHOOK_URL: http://svc-router:8080/event
+    ports:
+      - 25565:25565
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+  
+  svc-router:
+    # container_name: svc-router
+    image: ilonachan/svc-router:latest
+    ports:
+      - 24454:24454/udp
+      - 8084:8080
+  
+  # test servers
+  latest:
+    image: itzg/minecraft-server:java21
+    tty: true
+    stdin_open: true
+
+    environment:
+      EULA: "true"
+      MEMORY: 2G
+      ONLINE_MODE: "true"
+      GUI: FALSE
+
+      ENFORCE_WHITELIST: "false"
+      
+      VERSION: "LATEST"
+      TYPE: FABRIC
+      MODRINTH_PROJECTS: |
+        simple-voice-chat
+    volumes:
+      - latest:/data/
+    labels:
+      mc-router.host: |
+        latest.localhost
+  
+  old-mc-handshake:
+    extends: latest
+    environment:
+      VERSION: "1.18.2"
+    volumes:
+      - old-mc-handshake:/data/
+    labels:
+      mc-router.host: |
+        1_18_2.localhost
+  
+  old-svc-protocol:
+    extends: latest
+    environment:
+      VERSION: "1.18.1"
+    volumes:
+      - old-svc-protocol:/data/
+    labels:
+      mc-router.host: |
+        1_18_1.localhost
+
+volumes:
+  latest:
+  old-mc-handshake:
+  old-svc-protocol:
