@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -14,11 +16,21 @@ import (
 
 // configuration
 const (
-	UDPListenAddr    = "0.0.0.0:24454"
-	HTTPListenAddr   = "0.0.0.0:8080"
 	PacketTypeVoice  = 0xFF
 	DefaultVoicePort = "24454"
 )
+
+var (
+	svcBinding = flag.String("svc-binding", envOrDefault("SVC_BINDING", "0.0.0.0:24454"), "UDP voice listen address (host:port)")
+	apiBinding = flag.String("api-binding", envOrDefault("API_BINDING", "0.0.0.0:8080"), "HTTP webhook listen address (host:port)")
+)
+
+func envOrDefault(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return fallback
+}
 
 // WebhookPayload matches the JSON sent by mc-router
 type WebhookPayload struct {
@@ -95,22 +107,24 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	flag.Parse()
+
 	go func() {
 		http.HandleFunc("/", handleWebhook)
-		log.Printf("HTTP Webhook Listener running on %s", HTTPListenAddr)
-		if err := http.ListenAndServe(HTTPListenAddr, nil); err != nil {
+		log.Printf("HTTP Webhook Listener running on %s", *apiBinding)
+		if err := http.ListenAndServe(*apiBinding, nil); err != nil {
 			log.Fatalf("HTTP Server failed: %v", err)
 		}
 	}()
 
-	mainAddr, _ := net.ResolveUDPAddr("udp", UDPListenAddr)
+	mainAddr, _ := net.ResolveUDPAddr("udp", *svcBinding)
 	mainConn, err := net.ListenUDP("udp", mainAddr)
 	if err != nil {
 		log.Fatalf("UDP Listener failed: %v", err)
 	}
 	defer mainConn.Close()
 
-	log.Printf("UDP Voice Router listening on %s", UDPListenAddr)
+	log.Printf("UDP Voice Router listening on %s", *svcBinding)
 
 	buffer := make([]byte, 4096)
 

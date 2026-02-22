@@ -30,8 +30,8 @@ WORKDIR /app
 # Copy the binary from the builder stage
 COPY --from=builder /app/router .
 
-# Expose port 24454
-EXPOSE 24454
+# Expose default ports
+EXPOSE 24454 8080
 
-# Command to run the application
-CMD ["./router"]
+# Entrypoint so users can append flags
+ENTRYPOINT ["./router"]
