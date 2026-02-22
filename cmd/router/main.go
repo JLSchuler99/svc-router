@@ -16,7 +16,7 @@ import (
 const (
 	UDPListenAddr    = "0.0.0.0:24454"
 	HTTPListenAddr   = "0.0.0.0:8080"
-	SVC_MagicByte    = 0xFF
+	SVCMagicByte     = 0xFF
 	DefaultVoicePort = "24454"
 )
 
@@ -110,12 +110,12 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if payload.Player.UUID == "00000000-0000-0000-0000-000000000000" {
+		if *playerUUID == uuid.Nil {
 			log.Printf("[Webhook] Backend %s uses old protocol without UUIDs; no handling", payload.Backend)
 			http.Error(w, "UUID is required", http.StatusBadRequest)
 			return
 		}
-		
+
 		if _, has := routes[*playerUUID]; has {
 			log.Printf("[Webhook] Received connect for already mapped UUID: %s (replacing)", *playerUUID)
 		}
@@ -135,7 +135,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if payload.Player.UUID == "00000000-0000-0000-0000-000000000000" {
+		if *playerUUID == uuid.Nil {
 			// The disconnect for an old-backend connection; the error was already logged, ignore
 			// log.Printf("[Webhook] Backend %s uses old protocol without UUIDs; no handling", payload.Backend)
 			http.Error(w, "UUID is required", http.StatusBadRequest)
@@ -151,6 +151,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		log.Printf("[Webhook] Unknown event type received: %s (ignoring)", payload.Event)
+		http.Error(w, "Unknown Event type", http.StatusBadRequest)
 		return
 	}
 
@@ -210,14 +211,14 @@ func handlePacket(mainConn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte,
 		return
 	}
 
-	if packet[0] != SVC_MagicByte {
+	// SCENARIO B: New Session
+	// Check packet validity
+	if len(packet) == 0 || packet[0] != SVCMagicByte {
 		// TODO: make this log message print only once per clientKey
 		log.Printf("[Router] Received packet without magic byte from %s. The client and/or server may be using an old version of SVC, which is not supported.", clientKey)
 		return
 	}
 
-	// SCENARIO B: New Session
-	// Check packet validity
 	if len(packet) < 17 {
 		log.Printf("[Debug] Short packet from %s (len=%d)", clientKey, len(packet))
 		return
