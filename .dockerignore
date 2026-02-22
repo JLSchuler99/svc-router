@@ -1,0 +1,8 @@
+Dockerfile*
+.git/**
+.github/**
+dist/**
+.goreleaser.yml
+.claude/**
+README.md
+LICENSE

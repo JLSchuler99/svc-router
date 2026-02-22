@@ -1,0 +1,6 @@
+/router
+/dist/
+.idea/
+.vscode/
+.DS_Store
+*.env

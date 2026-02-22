@@ -1,0 +1,11 @@
+FROM alpine AS certs
+RUN apk add -U ca-certificates
+
+FROM scratch
+
+ARG TARGETPLATFORM
+
+COPY --from=certs /etc/ssl/certs/ /etc/ssl/certs
+COPY $TARGETPLATFORM/router /router
+EXPOSE 24454/udp 8080
+ENTRYPOINT ["/router"]
