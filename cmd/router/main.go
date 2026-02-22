@@ -16,7 +16,7 @@ import (
 
 // configuration
 const (
-	PacketTypeVoice  = 0xFF
+	SVCMagicByte     = 0xFF
 	DefaultVoicePort = "24454"
 )
 
@@ -36,11 +36,13 @@ func envOrDefault(key, fallback string) string {
 type WebhookPayload struct {
 	Event  string `json:"event"`
 	Status string `json:"status"`
+	Server string `json:"server"`
 	Player struct {
 		Name string `json:"name"`
 		UUID string `json:"uuid"`
 	} `json:"player"`
 	Backend string `json:"backend"`
+	Error   string `json:"error"`
 }
 
 // Session tracks a player's connection
@@ -85,22 +87,84 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	playerUUID, err := uuid.Parse(payload.Player.UUID)
-	if err != nil {
+	var playerUUID *uuid.UUID
+	if res, err := uuid.Parse(payload.Player.UUID); err == nil {
+		playerUUID = &res
+	} else if payload.Player.UUID != "" { // ignore unspecified UUID here, handled below
 		log.Printf("[Webhook] Invalid UUID: %s", payload.Player.UUID)
+		http.Error(w, "Invalid UUID", http.StatusBadRequest)
 		return
 	}
 
 	routesMu.Lock()
 	defer routesMu.Unlock()
 
-	if payload.Event == "connect" {
+	switch payload.Event {
+	case "connect":
+		switch payload.Status {
+		case "success":
+			// continue
+		case "missing-backend":
+			// mc-router did not find a backend, so we have nothing more to do
+			return
+		case "failed-backend-connection":
+			// mc-router failed to connect to backend server
+			// we can just assume that SVC also won't work then, so there's nothing more to do
+			return
+		default:
+			log.Printf("[Webhook] connect: Unknown status received: %s", payload.Status)
+			http.Error(w, "Unknown status", http.StatusBadRequest)
+			return
+		}
+
+		if playerUUID == nil {
+			// just a server connection test, nothing for us to do
+			return
+		}
+
+		if *playerUUID == uuid.Nil {
+			log.Printf("[Webhook] Backend %s uses old protocol without UUIDs; no handling", payload.Backend)
+			http.Error(w, "UUID is required", http.StatusBadRequest)
+			return
+		}
+
+		if _, has := routes[*playerUUID]; has {
+			log.Printf("[Webhook] Received connect for already mapped UUID: %s (replacing)", *playerUUID)
+		}
 		udpTarget := transformBackendAddress(payload.Backend)
-		routes[playerUUID] = udpTarget
-		log.Printf("[Webhook] Registered %s -> %s (Source: %s)", playerUUID, udpTarget, payload.Backend)
-	} else if payload.Event == "disconnect" {
-		delete(routes, playerUUID)
-		log.Printf("[Webhook] Removed %s", playerUUID)
+		routes[*playerUUID] = udpTarget
+		log.Printf("[Webhook] Registered %s -> %s (Source: %s)", *playerUUID, udpTarget, payload.Backend)
+
+	case "disconnect":
+		if payload.Status != "success" {
+			log.Printf("[Webhook] disconnect: Unknown status received: %s", payload.Status)
+			http.Error(w, "Unknown status", http.StatusBadRequest)
+			return
+		}
+
+		if playerUUID == nil {
+			// The end of a server connection test?
+			return
+		}
+
+		if *playerUUID == uuid.Nil {
+			// The disconnect for an old-backend connection; the error was already logged, ignore
+			// log.Printf("[Webhook] Backend %s uses old protocol without UUIDs; no handling", payload.Backend)
+			http.Error(w, "UUID is required", http.StatusBadRequest)
+			return
+		}
+
+		if _, ok := routes[*playerUUID]; !ok {
+			log.Printf("[Webhook] Received disconnect for unmapped UUID: %s", *playerUUID)
+			return
+		}
+		delete(routes, *playerUUID)
+		log.Printf("[Webhook] Removed %s", *playerUUID)
+
+	default:
+		log.Printf("[Webhook] Unknown event type received: %s (ignoring)", payload.Event)
+		http.Error(w, "Unknown Event type", http.StatusBadRequest)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -163,17 +227,18 @@ func handlePacket(mainConn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte,
 
 	// SCENARIO B: New Session
 	// Check packet validity
+	if len(packet) == 0 || packet[0] != SVCMagicByte {
+		// TODO: make this log message print only once per clientKey
+		log.Printf("[Router] Received packet without magic byte from %s. The client and/or server may be using an old version of SVC, which is not supported.", clientKey)
+		return
+	}
+
 	if len(packet) < 17 {
 		log.Printf("[Debug] Short packet from %s (len=%d)", clientKey, len(packet))
 		return
 	}
 
-	// Simple Voice Chat sends data and ping packets
-	// we can only setup a session on voice data packets, afterwards all packets are forwarded
-	if packet[0] != PacketTypeVoice {
-		log.Printf("[Debug] Ignored non-voice packet (type %x) from %s", packet[0], clientKey)
-		return
-	}
+	// TODO: we can only set up a session on voice data packets, afterwards all packets are forwarded
 
 	// Extract UUID
 	uuidBytes := packet[1:17]
