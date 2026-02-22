@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - "docs/**"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - "docs/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Test
+        run: go test -v -race -count=1 ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -o /dev/null ./cmd/router

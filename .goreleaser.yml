@@ -1,0 +1,62 @@
+version: 2
+
+builds:
+  - main: ./cmd/router
+    binary: router
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "6"
+    ignore:
+      - goos: windows
+        goarch: arm64
+      - goos: windows
+        goarch: arm
+      - goos: darwin
+        goarch: arm
+
+archives:
+  - format_overrides:
+      - goos: windows
+        formats: ['zip']
+    files:
+      - LICENSE
+      - README.md
+
+dockers_v2:
+  - images:
+      - "jschuler99/svc-router"
+      - "ghcr.io/jlschuler99/svc-router"
+    dockerfile: Dockerfile.release
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/arm/v6
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    labels:
+      org.opencontainers.image.title: "svc-router"
+      org.opencontainers.image.description: "Routes Simple Voice Chat UDP traffic to backend Minecraft servers."
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+
+changelog:
+  filters:
+    exclude:
+      - '^ci:'
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
